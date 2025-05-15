@@ -45,36 +45,13 @@ Session = sessionmaker(bind=engine)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-
-class Reminder(Base):
-    __tablename__ = 'reminders'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer)
-    name = Column(String)
-    time = Column(DateTime)
-    repeat_interval = Column(String, nullable=True)
-    is_weather = Column(Boolean, default=False)
-    city = Column(String, nullable=True)
-    file_id = Column(String, nullable=True)
-    file_type = Column(String, nullable=True)
-    next_run = Column(DateTime)
-
-
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-
 class ReminderStates(StatesGroup):
     waiting_for_name = State()
     waiting_for_time = State()
     waiting_for_weather_city = State()
     waiting_for_file = State()
     editing_reminder = State()
-    editing_reminder_time = State()  # Добавлено новое состояние
-
+    editing_reminder_time = State()
 
 
 # ================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==================
@@ -209,7 +186,7 @@ async def process_weather_city(message: types.Message, state: FSMContext):
         return
 
     await state.update_data(city=city, is_weather=True)
-    await message.answer("Введите время для напоминания (например: 'каждый день в 8 утра'):")
+    await message.answer("Введите время для напоминания (например: 'каждый день в 8:00'):")
     await state.set_state(ReminderStates.waiting_for_time)
 
 
@@ -218,9 +195,10 @@ async def process_name(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text)
     await message.answer(
         "Введите время напоминания:\nПримеры:\n"
-        "- Завтра в 10 утра\n"
+        "- Завтра в 10:00\n"
         "- Каждый день в 9:30\n"
-        "- 15 мая в 19:30"
+        "- 15 мая в 19:30\n"
+        "- Через 10 минут"
     )
     await state.set_state(ReminderStates.waiting_for_time)
 
@@ -234,12 +212,12 @@ async def process_time(message: types.Message, state: FSMContext):
     repeat = None
     clean_time_str = time_str.lower()
 
-    if "каждый день" in clean_time_str:
-        repeat = "daily"
-        time_str = time_str.replace("каждый день", "").strip()
-    elif "каждый месяц" in clean_time_str:
-        repeat = "monthly"
-        time_str = time_str.replace("каждый месяц", "").strip()
+    if "каждый день" or "Каждый день" in clean_time_str:
+        repeat = "ежедневно"
+        time_str = time_str.lower().replace("каждый день", "").strip()
+    elif "каждый месяц" or "Каждый месяц" in clean_time_str:
+        repeat = "ежемесячно"
+        time_str = time_str.lower().replace("каждый месяц", "").strip()
 
     # Парсим время с улучшенными настройками
     parsed_time = dateparser.parse(
@@ -529,23 +507,53 @@ async def main():
 
     await dp.start_polling(bot)
 
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
 from flask import Flask
-app = Flask(__name__)
+from threading import Thread
+
+app = Flask('')
 
 @app.route('/')
 def home():
-    return "Telegram Bot is running!"
+    return "Bot is running!"
 
-async def run_bot():
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+Thread(target=run).start()
+
+from aiohttp import web
+
+async def web_server():
+    app = web.Application()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    return app, runner, site
+
+async def main():
+    # Инициализация веб-сервера
+    web_app, runner, site = await web_server()
+
+    # Запуск бота
     await bot.delete_webhook(drop_pending_updates=True)
     session = Session()
     reminders = session.query(Reminder).filter(Reminder.next_run > datetime.now()).all()
     for rem in reminders:
         asyncio.create_task(schedule_reminder(rem))
     session.close()
-    await dp.start_polling(bot)
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await runner.cleanup()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_bot())
-    app.run(host='0.0.0.0', port=3000)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Bot stopped")
