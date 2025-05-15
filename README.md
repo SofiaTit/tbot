@@ -20,8 +20,3 @@ Telegram-бот для управления напоминаниями с под
 - **SQLAlchemy** (SQLite/PostgreSQL)
 - **OpenWeather API** (данные о погоде)
 - **Flask** (веб-интерфейс для деплоя)
-
-## 🚀 Запуск проекта
-1. Установите зависимости:
-   ```bash
-   pip install aiogram python-dotenv sqlalchemy dateparser requests flask
